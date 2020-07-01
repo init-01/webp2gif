@@ -4,6 +4,7 @@ import sys
 import imageio
 import webp
 from glob import glob
+from multiprocessing import Pool
 
 def convert_webp2gif(src_webp):
     try:
@@ -24,18 +25,27 @@ def convert_webp2gif(src_webp):
             for frame, duration_ms in zip(list_frame, list_dur):
                 dst_writer.append_data(frame)
     except Exception as e:
-        print(f"error while processing {src_webp}: {e}")
+        print(f"{ERR_RED}error while processing {src_webp}: {e}", file=sys.stderr)
         return -1
     return 0
 
-if len(sys.argv) == 2:
-    src=sys.argv[1]
+
+
+if sys.stderr.isatty():
+    ERR_RED = '\033[0;31m'
 else:
-    print("argument error")
-    print("usage: webp2gif.py src_path")
-    sys.exit(0)
+    ERR_RED = '\033[0m'
 
-srclist = [ s for s in glob(src) if s.endswith('.webp') ]
+srclist=[]
+for arg in sys.argv[1:]:
+    if arg.endswith('.webp'):
+        srclist.append(arg)
+    else:
+        print(f"{ERR_RED}argument error!: {arg}", file=sys.stderr)
+        print(f"{ERR_RED}usage: webp2gif.py FILE1.webp FILE2.webp ...", file=sys.stderr)
+        print(f"{ERR_RED}or", file=sys.stderr)
+        print(f"{ERR_RED}       webp2gif.py */*.webp ...", file=sys.stderr)
+        sys.exit(0)
 
-for src_img in srclist:
-    convert_webp2gif(src_img)
+with Pool(4) as p:
+    p.map(convert_webp2gif, srclist)
