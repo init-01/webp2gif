@@ -4,7 +4,7 @@
 
 Improved version of https://unix.stackexchange.com/questions/419761/webp-animation-to-gif-animation-cli
 
-Dependent packages: webp, ffmpeg, imagemagick
+Dependent packages: webp, imagemagick
 
 
 ### webp2gif.py
