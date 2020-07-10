@@ -1,7 +1,7 @@
 #!/usr/bin/zsh
 
 n=`webpinfo -summary $1 | grep frames | sed -e 's/.* \([0-9]*\)$/\1/'`
-duration=$(webpinfo -summary $1 | grep Duration | head -n2 | tail -n1 | sed -e 's/.* \([0-9]*\)$/\1/')
+duration=`webpinfo -summary $1 | grep Duration | head -n2 | tail -n1 | sed -e 's/.* \([0-9]*\)$/\1/'`
 fps=`expr 1000 / $duration`
 pfx="${1%.*}"
 pfx=`echo -n $1 | sed -e 's/^\(.*\).webp$/\1/'`
