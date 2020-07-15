@@ -29,9 +29,17 @@
 #ifndef gif_h
 #define gif_h
 
-#include <stdio.h>   // for FILE*
-#include <string.h>  // for memcpy and bzero
-#include <stdint.h>  // for integer typedefs
+#if !defined(__cplusplus)
+#error C++ compiler required.
+#endif
+
+#include <cstdio>   // for FILE*
+#include <cstring>  // for memcpy and bzero
+#include <cstdint>  // for integer typedefs
+
+#include <tuple>
+#include <unordered_set>
+#include <functional>
 
 // Define these macros to hook into a custom memory allocator.
 // TEMP_MALLOC and TEMP_FREE will only be called in stack fashion - frees in the reverse order of mallocs
@@ -75,6 +83,25 @@ struct GifPalette
     uint8_t treeSplitElt[256];
     uint8_t treeSplit[256];
 };
+
+
+
+namespace std
+{
+typedef tuple<uint8_t, uint8_t, uint8_t, uint8_t> rgba_t;
+    template<> struct hash<rgba_t>
+    {
+        std::size_t operator()(rgba_t const& s) const noexcept
+        {
+            std::size_t h_r = std::hash<int>{}(std::get<0>(s));
+            std::size_t h_g = std::hash<int>{}(std::get<1>(s));
+            std::size_t h_b = std::hash<int>{}(std::get<2>(s));
+            std::size_t h_a = std::hash<int>{}(std::get<3>(s));
+            return h_r ^ (h_g << 1) ^ (h_b << 2) ^ (h_a << 3); // or use boost::hash_combine
+        }
+    };
+}
+
 
 // max, min, and abs functions
 int GifIMax(int l, int r) { return l>r?l:r; }
@@ -256,8 +283,14 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
 
         // otherwise, take the average of all colors in this subcube
         uint64_t r=0, g=0, b=0;
+        bool color_match_flag = false;
         for(int ii=0; ii<numPixels; ++ii)
         {
+            //if(image[ii*4+0] == 255 && image[ii*4+1] == 51 && image[ii*4+2] == 153){
+            //    printf("R:%d, G:%d, B:%d\n",image[ii*4+0],image[ii*4+1],image[ii*4+2]);
+            //    printf("firstElt:%d, lastElt:%d, numPixels=%d\n", firstElt, lastElt, numPixels);
+            //    color_match_flag = true;
+            //}
             r += image[ii*4+0];
             g += image[ii*4+1];
             b += image[ii*4+2];
@@ -274,6 +307,10 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
         pal->r[firstElt] = (uint8_t)r;
         pal->g[firstElt] = (uint8_t)g;
         pal->b[firstElt] = (uint8_t)b;
+
+        if(color_match_flag){
+            printf("mapped color: R %lu G %lu B %lu\n", r, g, b);
+        }
 
         return;
     }
@@ -319,6 +356,36 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
     GifSplitPalette(image+subPixelsA*4, subPixelsB, splitElt, lastElt,  splitElt+splitDist, splitDist/2, treeNode*2+1, buildForDither, pal);
 }
 
+
+// Find all pixels that have color not appeared before in frame
+int GifPickUniqueColors( uint8_t* frame, int numPixels )
+{
+    int numUnique = 0;
+    uint8_t* writeIter = frame;
+
+    std::unordered_set<std::rgba_t> uniqueColorSet;
+
+    for(int i = 0; i < numPixels; ++i){
+        uint8_t r, g, b, a;
+        r = frame[0];
+        g = frame[1];
+        b = frame[2];
+        a = frame[3];
+        uniqueColorSet.insert(std::make_tuple(r, g, b, a));
+        frame += 4;
+    }
+
+    for(auto it = uniqueColorSet.begin(); it != uniqueColorSet.end(); ++it){
+        writeIter[0] = std::get<0>(*it);
+        writeIter[1] = std::get<1>(*it);
+        writeIter[2] = std::get<2>(*it);
+        writeIter[3] = std::get<3>(*it);
+        writeIter += 4;
+    }
+
+    return uniqueColorSet.size();
+}
+
 // Finds all pixels that have changed from the previous image and
 // moves them to the fromt of th buffer.
 // This allows us to build a palette optimized for the colors of the
@@ -362,6 +429,8 @@ void GifMakePalette( const uint8_t* lastFrame, const uint8_t* nextFrame, uint32_
     int numPixels = (int)(width * height);
     if(lastFrame)
         numPixels = GifPickChangedPixels(lastFrame, destroyableImage, numPixels);
+    
+    numPixels = GifPickUniqueColors(destroyableImage, numPixels);
 
     const int lastElt = 1 << bitDepth;
     const int splitElt = lastElt/2;
@@ -804,6 +873,11 @@ bool GifWriteFrame( GifWriter* writer, const uint8_t* image, uint32_t width, uin
 
     GifPalette pal;
     GifMakePalette((dither? NULL : oldImage), image, width, height, bitDepth, dither, &pal);
+
+    printf("Pallete\n");
+    for(int i = 0; i < 1 << pal.bitDepth; ++i){
+        printf("R:%d, G:%d, B:%d\n", pal.r[i], pal.g[i], pal.b[i]);
+    }
 
     if(dither)
         GifDitherImage(oldImage, image, writer->oldImage, width, height, &pal);

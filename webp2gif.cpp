@@ -11,6 +11,7 @@ using namespace std;
 int main(int argc, char **argv){
 	//Open WebP File
 	//
+	(void)argc;
 	string webp_name=argv[1];
 	string gif_name=webp_name;
 	gif_name.replace(gif_name.end()-4, gif_name.end(), "gif", 3);
@@ -51,7 +52,7 @@ int main(int argc, char **argv){
 
 	//Initialize Gif Writer
 	GifWriter gif_file;
-	GifBegin(&gif_file, gif_name.c_str(), webp_anim_info.canvas_width, webp_anim_info.canvas_height, 0);
+	GifBegin(&gif_file, gif_name.c_str(), webp_anim_info.canvas_width, webp_anim_info.canvas_height, 1, 8, false);
 
 	int curr_timestamp = 0;
        	int prev_timestamp = 0;
@@ -60,7 +61,7 @@ int main(int argc, char **argv){
 	while(WebPAnimDecoderHasMoreFrames(webp_dec)){
 		uint8_t* rgba_buffer;
 		WebPAnimDecoderGetNext(webp_dec, &rgba_buffer, &curr_timestamp);
-		GifWriteFrame(&gif_file, rgba_buffer, webp_anim_info.canvas_width, webp_anim_info.canvas_height, curr_timestamp/10 - prev_timestamp/10);	//WebPAnimDecoder uses 1/1000 sec to delay but GifWriteFrame uses 1/100 sec to delay so divide by 10
+		GifWriteFrame(&gif_file, rgba_buffer, webp_anim_info.canvas_width, webp_anim_info.canvas_height, curr_timestamp/10 - prev_timestamp/10, 8, false);	//WebPAnimDecoder uses 1/1000 sec to delay but GifWriteFrame uses 1/100 sec to delay so divide by 10
 		prev_timestamp = curr_timestamp;
 	}
 
