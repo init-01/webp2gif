@@ -38,7 +38,7 @@
 #include <cstdint>  // for integer typedefs
 
 #include <tuple>
-#include <unordered_set>
+#include <unordered_map>
 #include <functional>
 
 // Define these macros to hook into a custom memory allocator.
@@ -84,20 +84,24 @@ struct GifPalette
     uint8_t treeSplit[256];
 };
 
-
+typedef struct GifRgbCount{
+    uint8_t rgb[3];
+    uint64_t pixel_count;
+} GifRgbCount_t;
 
 namespace std
 {
-typedef tuple<uint8_t, uint8_t, uint8_t, uint8_t> rgba_t;
-    template<> struct hash<rgba_t>
+    typedef tuple<uint8_t, uint8_t, uint8_t> rgb_t;
+    
+
+    template<> struct hash<rgb_t>
     {
-        std::size_t operator()(rgba_t const& s) const noexcept
+        std::size_t operator()(rgb_t const& s) const noexcept
         {
             std::size_t h_r = std::hash<int>{}(std::get<0>(s));
             std::size_t h_g = std::hash<int>{}(std::get<1>(s));
             std::size_t h_b = std::hash<int>{}(std::get<2>(s));
-            std::size_t h_a = std::hash<int>{}(std::get<3>(s));
-            return h_r ^ (h_g << 1) ^ (h_b << 2) ^ (h_a << 3); // or use boost::hash_combine
+            return h_r ^ (h_g << 1) ^ (h_b << 2); // or use boost::hash_combine
         }
     };
 }
@@ -160,78 +164,63 @@ void GifGetClosestPaletteColor(GifPalette* pPal, int r, int g, int b, int& bestI
     }
 }
 
-void GifSwapPixels(uint8_t* image, int pixA, int pixB)
+void GifSwapPixels(GifRgbCount_t* rgb_count, int pixA, int pixB)
 {
-    uint8_t rA = image[pixA*4];
-    uint8_t gA = image[pixA*4+1];
-    uint8_t bA = image[pixA*4+2];
-    uint8_t aA = image[pixA*4+3];
-
-    uint8_t rB = image[pixB*4];
-    uint8_t gB = image[pixB*4+1];
-    uint8_t bB = image[pixB*4+2];
-    uint8_t aB = image[pixA*4+3];
-
-    image[pixA*4] = rB;
-    image[pixA*4+1] = gB;
-    image[pixA*4+2] = bB;
-    image[pixA*4+3] = aB;
-
-    image[pixB*4] = rA;
-    image[pixB*4+1] = gA;
-    image[pixB*4+2] = bA;
-    image[pixB*4+3] = aA;
+    GifRgbCount_t temp;
+    temp = rgb_count[pixA];
+    rgb_count[pixA] = rgb_count[pixB];
+    rgb_count[pixB] = temp;
 }
 
 // just the partition operation from quicksort
-int GifPartition(uint8_t* image, const int left, const int right, const int elt, int pivotIndex)
+int GifPartition(GifRgbCount_t* rgb_count, const int left, const int right, const int elt, int pivotIndex)
 {
-    const int pivotValue = image[(pivotIndex)*4+elt];
-    GifSwapPixels(image, pivotIndex, right-1);
+    const int pivotValue = rgb_count[pivotIndex].rgb[elt];
+    GifSwapPixels(rgb_count, pivotIndex, right-1);
     int storeIndex = left;
     bool split = 0;
     for(int ii=left; ii<right-1; ++ii)
     {
-        int arrayVal = image[ii*4+elt];
+        int arrayVal = rgb_count[ii].rgb[elt];
         if( arrayVal < pivotValue )
         {
-            GifSwapPixels(image, ii, storeIndex);
+            GifSwapPixels(rgb_count, ii, storeIndex);
             ++storeIndex;
         }
         else if( arrayVal == pivotValue )
         {
             if(split)
             {
-                GifSwapPixels(image, ii, storeIndex);
+                GifSwapPixels(rgb_count, ii, storeIndex);
                 ++storeIndex;
             }
             split = !split;
         }
     }
-    GifSwapPixels(image, storeIndex, right-1);
+    GifSwapPixels(rgb_count, storeIndex, right-1);
     return storeIndex;
 }
 
 // Perform an incomplete sort, finding all elements above and below the desired median
-void GifPartitionByMedian(uint8_t* image, int left, int right, int com, int neededCenter)
+void GifPartitionByMedian(GifRgbCount_t* rgb_count, int left, int right, int com, int neededCenter)
 {
     if(left < right-1)
     {
         int pivotIndex = left + (right-left)/2;
 
-        pivotIndex = GifPartition(image, left, right, com, pivotIndex);
+        pivotIndex = GifPartition(rgb_count, left, right, com, pivotIndex);
 
         // Only "sort" the section of the array that contains the median
         if(pivotIndex > neededCenter)
-            GifPartitionByMedian(image, left, pivotIndex, com, neededCenter);
+            GifPartitionByMedian(rgb_count, left, pivotIndex, com, neededCenter);
 
         if(pivotIndex < neededCenter)
-            GifPartitionByMedian(image, pivotIndex+1, right, com, neededCenter);
+            GifPartitionByMedian(rgb_count, pivotIndex+1, right, com, neededCenter);
     }
 }
 
 // Builds a palette by creating a balanced k-d tree of all pixels in the image
-void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, int splitElt, int splitDist, int treeNode, bool buildForDither, GifPalette* pal)
+void GifSplitPalette(GifRgbCount_t* rgb_count, int numPixels, int firstElt, int lastElt, int splitElt, int splitDist, int treeNode, bool buildForDither, GifPalette* pal)
 {
     if(lastElt <= firstElt || numPixels == 0)
         return;
@@ -250,9 +239,9 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
                 uint32_t r=255, g=255, b=255;
                 for(int ii=0; ii<numPixels; ++ii)
                 {
-                    r = (uint32_t)GifIMin((int32_t)r, image[ii * 4 + 0]);
-                    g = (uint32_t)GifIMin((int32_t)g, image[ii * 4 + 1]);
-                    b = (uint32_t)GifIMin((int32_t)b, image[ii * 4 + 2]);
+                    r = (uint32_t)GifIMin((int32_t)r, rgb_count[ii].rgb[0]);
+                    g = (uint32_t)GifIMin((int32_t)g, rgb_count[ii].rgb[1]);
+                    b = (uint32_t)GifIMin((int32_t)b, rgb_count[ii].rgb[2]);
                 }
 
                 pal->r[firstElt] = (uint8_t)r;
@@ -268,9 +257,9 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
                 uint32_t r=0, g=0, b=0;
                 for(int ii=0; ii<numPixels; ++ii)
                 {
-                    r = (uint32_t)GifIMax((int32_t)r, image[ii * 4 + 0]);
-                    g = (uint32_t)GifIMax((int32_t)g, image[ii * 4 + 1]);
-                    b = (uint32_t)GifIMax((int32_t)b, image[ii * 4 + 2]);
+                    r = (uint32_t)GifIMax((int32_t)r, rgb_count[ii].rgb[0]);
+                    g = (uint32_t)GifIMax((int32_t)g, rgb_count[ii].rgb[1]);
+                    b = (uint32_t)GifIMax((int32_t)b, rgb_count[ii].rgb[2]);
                 }
 
                 pal->r[firstElt] = (uint8_t)r;
@@ -282,35 +271,27 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
         }
 
         // otherwise, take the average of all colors in this subcube
-        uint64_t r=0, g=0, b=0;
+        uint64_t r=0, g=0, b=0, pixel_count=0;
         bool color_match_flag = false;
         for(int ii=0; ii<numPixels; ++ii)
         {
-            //if(image[ii*4+0] == 255 && image[ii*4+1] == 51 && image[ii*4+2] == 153){
-            //    printf("R:%d, G:%d, B:%d\n",image[ii*4+0],image[ii*4+1],image[ii*4+2]);
-            //    printf("firstElt:%d, lastElt:%d, numPixels=%d\n", firstElt, lastElt, numPixels);
-            //    color_match_flag = true;
-            //}
-            r += image[ii*4+0];
-            g += image[ii*4+1];
-            b += image[ii*4+2];
+            r += rgb_count[ii].rgb[0] * rgb_count[ii].pixel_count;
+            g += rgb_count[ii].rgb[1] * rgb_count[ii].pixel_count;
+            b += rgb_count[ii].rgb[2] * rgb_count[ii].pixel_count;
+            pixel_count += rgb_count[ii].pixel_count;
         }
 
-        r += (uint64_t)numPixels / 2;  // round to nearest
-        g += (uint64_t)numPixels / 2;
-        b += (uint64_t)numPixels / 2;
+        r += pixel_count / 2;  // round to nearest
+        g += pixel_count / 2;
+        b += pixel_count / 2;
 
-        r /= (uint64_t)numPixels;
-        g /= (uint64_t)numPixels;
-        b /= (uint64_t)numPixels;
+        r /= pixel_count;
+        g /= pixel_count;
+        b /= pixel_count;
 
         pal->r[firstElt] = (uint8_t)r;
         pal->g[firstElt] = (uint8_t)g;
         pal->b[firstElt] = (uint8_t)b;
-
-        if(color_match_flag){
-            printf("mapped color: R %lu G %lu B %lu\n", r, g, b);
-        }
 
         return;
     }
@@ -321,9 +302,9 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
     int minB = 255, maxB = 0;
     for(int ii=0; ii<numPixels; ++ii)
     {
-        int r = image[ii*4+0];
-        int g = image[ii*4+1];
-        int b = image[ii*4+2];
+        int r = rgb_count[ii].rgb[0];
+        int g = rgb_count[ii].rgb[1];
+        int b = rgb_count[ii].rgb[2];
 
         if(r > maxR) maxR = r;
         if(r < minR) minR = r;
@@ -347,43 +328,47 @@ void GifSplitPalette(uint8_t* image, int numPixels, int firstElt, int lastElt, i
     int subPixelsA = numPixels * (splitElt - firstElt) / (lastElt - firstElt);
     int subPixelsB = numPixels-subPixelsA;
 
-    GifPartitionByMedian(image, 0, numPixels, splitCom, subPixelsA);
+    GifPartitionByMedian(rgb_count, 0, numPixels, splitCom, subPixelsA);
 
     pal->treeSplitElt[treeNode] = (uint8_t)splitCom;
-    pal->treeSplit[treeNode] = image[subPixelsA*4+splitCom];
+    pal->treeSplit[treeNode] = rgb_count[subPixelsA].rgb[splitCom];
+    
 
-    GifSplitPalette(image,              subPixelsA, firstElt, splitElt, splitElt-splitDist, splitDist/2, treeNode*2,   buildForDither, pal);
-    GifSplitPalette(image+subPixelsA*4, subPixelsB, splitElt, lastElt,  splitElt+splitDist, splitDist/2, treeNode*2+1, buildForDither, pal);
+    GifSplitPalette(rgb_count,              subPixelsA, firstElt, splitElt, splitElt-splitDist, splitDist/2, treeNode*2,   buildForDither, pal);
+    GifSplitPalette(rgb_count+subPixelsA,   subPixelsB, splitElt, lastElt,  splitElt+splitDist, splitDist/2, treeNode*2+1, buildForDither, pal);
 }
 
 
 // Find all pixels that have color not appeared before in frame
-int GifPickUniqueColors( uint8_t* frame, int numPixels )
+int GifCountPixelColor( uint8_t* frame, GifRgbCount_t** rgb_count_p, int numPixels )
 {
     int numUnique = 0;
     uint8_t* writeIter = frame;
 
-    std::unordered_set<std::rgba_t> uniqueColorSet;
+    std::unordered_map<std::rgb_t, uint64_t> uniqueColorMap;
 
     for(int i = 0; i < numPixels; ++i){
-        uint8_t r, g, b, a;
+        uint8_t r, g, b;
         r = frame[0];
         g = frame[1];
         b = frame[2];
-        a = frame[3];
-        uniqueColorSet.insert(std::make_tuple(r, g, b, a));
+        uniqueColorMap[std::make_tuple(r, g, b)]++;
         frame += 4;
     }
 
-    for(auto it = uniqueColorSet.begin(); it != uniqueColorSet.end(); ++it){
-        writeIter[0] = std::get<0>(*it);
-        writeIter[1] = std::get<1>(*it);
-        writeIter[2] = std::get<2>(*it);
-        writeIter[3] = std::get<3>(*it);
-        writeIter += 4;
+    *rgb_count_p = new GifRgbCount_t[uniqueColorMap.size()];
+
+    auto rgb_count_iter = *rgb_count_p;
+
+    for(auto it = uniqueColorMap.begin(); it != uniqueColorMap.end(); ++it){
+        rgb_count_iter->rgb[0] = std::get<0>(it->first);
+        rgb_count_iter->rgb[1] = std::get<1>(it->first);
+        rgb_count_iter->rgb[2] = std::get<2>(it->first);
+        rgb_count_iter->pixel_count = it->second;
+        rgb_count_iter++;
     }
 
-    return uniqueColorSet.size();
+    return uniqueColorMap.size();
 }
 
 // Finds all pixels that have changed from the previous image and
@@ -430,13 +415,15 @@ void GifMakePalette( const uint8_t* lastFrame, const uint8_t* nextFrame, uint32_
     if(lastFrame)
         numPixels = GifPickChangedPixels(lastFrame, destroyableImage, numPixels);
     
-    numPixels = GifPickUniqueColors(destroyableImage, numPixels);
+    GifRgbCount_t* rgb_count;
+    
+    numPixels = GifCountPixelColor(destroyableImage, &rgb_count, numPixels);
 
     const int lastElt = 1 << bitDepth;
     const int splitElt = lastElt/2;
     const int splitDist = splitElt/2;
 
-    GifSplitPalette(destroyableImage, numPixels, 1, lastElt, splitElt, splitDist, 1, buildForDither, pPal);
+    GifSplitPalette(rgb_count, numPixels, 1, lastElt, splitElt, splitDist, 1, buildForDither, pPal);
 
     GIF_TEMP_FREE(destroyableImage);
 
@@ -873,11 +860,6 @@ bool GifWriteFrame( GifWriter* writer, const uint8_t* image, uint32_t width, uin
 
     GifPalette pal;
     GifMakePalette((dither? NULL : oldImage), image, width, height, bitDepth, dither, &pal);
-
-    printf("Pallete\n");
-    for(int i = 0; i < 1 << pal.bitDepth; ++i){
-        printf("R:%d, G:%d, B:%d\n", pal.r[i], pal.g[i], pal.b[i]);
-    }
 
     if(dither)
         GifDitherImage(oldImage, image, writer->oldImage, width, height, &pal);
