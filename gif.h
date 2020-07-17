@@ -340,7 +340,7 @@ void GifSplitPalette(GifRgbCount_t* rgb_count, int numPixels, int firstElt, int 
 
 
 // Find all pixels that have color not appeared before in frame
-int GifCountPixelColor( uint8_t* frame, GifRgbCount_t** rgb_count_p, int numPixels )
+int GifCountPixelColor( uint8_t* frame, GifRgbCount_t* &rgb_count, int numPixels )
 {
     int numUnique = 0;
     uint8_t* writeIter = frame;
@@ -356,9 +356,9 @@ int GifCountPixelColor( uint8_t* frame, GifRgbCount_t** rgb_count_p, int numPixe
         frame += 4;
     }
 
-    *rgb_count_p = new GifRgbCount_t[uniqueColorMap.size()];
+    rgb_count = (GifRgbCount_t*)GIF_MALLOC(uniqueColorMap.size() * sizeof(GifRgbCount_t));
 
-    auto rgb_count_iter = *rgb_count_p;
+    auto rgb_count_iter = rgb_count;
 
     for(auto it = uniqueColorMap.begin(); it != uniqueColorMap.end(); ++it){
         rgb_count_iter->rgb[0] = std::get<0>(it->first);
@@ -417,7 +417,9 @@ void GifMakePalette( const uint8_t* lastFrame, const uint8_t* nextFrame, uint32_
     
     GifRgbCount_t* rgb_count;
     
-    numPixels = GifCountPixelColor(destroyableImage, &rgb_count, numPixels);
+    numPixels = GifCountPixelColor(destroyableImage, rgb_count, numPixels);
+
+    GIF_TEMP_FREE(destroyableImage);
 
     const int lastElt = 1 << bitDepth;
     const int splitElt = lastElt/2;
@@ -425,7 +427,7 @@ void GifMakePalette( const uint8_t* lastFrame, const uint8_t* nextFrame, uint32_
 
     GifSplitPalette(rgb_count, numPixels, 1, lastElt, splitElt, splitDist, 1, buildForDither, pPal);
 
-    GIF_TEMP_FREE(destroyableImage);
+    GIF_FREE(rgb_count);
 
     // add the bottom node for the transparency index
     pPal->treeSplit[1 << (bitDepth-1)] = 0;
