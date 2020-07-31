@@ -1,0 +1,6 @@
+#ignore hidden file
+.*
+!/.gitignore
+
+#ignore debug file
+peda*
