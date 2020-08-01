@@ -28,12 +28,12 @@ c++ version of webp2gif, much faster
 
 using gif-h at https://github.com/charlietangora/gif-h
 
-Dependent packages: libwebpdemux2
+Dependent packages: libwebpdemux2 libtbb-dev
 
-use apt install libwebpdemux2 build-essential g++
+use apt install libwebpdemux2 libtbb-dev build-essential g++
 
 and
 
-g++ webp2gif.cpp -o webp2gif -lwebp -lwebpdemux
+g++ webp2gif.cpp -o webp2gif -std=c++17 -lwebp -lwebpdemux -ltbb -lstdc++fs
 
 to build

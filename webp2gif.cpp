@@ -4,18 +4,18 @@
 #include <iostream>
 #include <fstream>
 #include <cassert>
+#include <vector>
+#include <filesystem>
 #include "webp/demux.h"
+#include <tbb/tbb.h>
 
 using namespace std;
+using namespace tbb;
 
-int main(int argc, char **argv){
-	//Open WebP File
-	//
-	(void)argc;
-	string webp_name=argv[1];
-	string gif_name=webp_name;
-	gif_name.replace(gif_name.end()-4, gif_name.end(), "gif", 3);
+namespace fs = filesystem;
 
+bool webp2gif(string webp_name, string gif_name){
+	printf("%s\n", webp_name.c_str());
 	ifstream webpfile;
 	ios_base::iostate exceptionMask = webpfile.exceptions() | std::ios::failbit;
 	webpfile.exceptions(exceptionMask);
@@ -25,6 +25,7 @@ int main(int argc, char **argv){
 	catch (ios_base::failure &e){
 		cerr << e.what() << endl;
 		cerr << strerror(errno) << endl;
+		return false;
 	}
 
 	//Initialize Anim WebP Decoder Options
@@ -72,5 +73,22 @@ int main(int argc, char **argv){
 	GifEnd(&gif_file);
 
 	WebPDataClear(&webp_data);
+	return true;
+}
+
+int main(int argc, char **argv){
+
+	parallel_for(blocked_range<size_t>(1, argc, (argc-1)/4),
+		[argv](const blocked_range<size_t> &r){
+			for(size_t i = r.begin(); i != r.end(); ++i){
+				fs::path webp_name (argv[i]);
+				if(webp_name.extension() != ".webp")
+					continue;
+				fs::path gif_name = webp_name;
+				gif_name.replace_extension(".gif");
+				webp2gif(webp_name.string(), gif_name.string());
+			}
+		}
+	);
 	return 0;
 }
